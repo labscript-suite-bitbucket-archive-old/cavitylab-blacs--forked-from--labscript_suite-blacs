@@ -406,7 +406,7 @@ class QueueManager(object):
         result,error = inmain(self.BLACS.connection_table.compare_to,new_conn)
         if result:
             if is_dummy:
-                dummy_path = 'X:\\dummy_shots\\DUMMY.h5'    # !!! Don't hard-code
+                dummy_path = self.BLACS.exp_config.get('paths', 'experiment_shot_storage') + '\\dummy_shots\\DUMMY.h5'
 
                 if (h5_filepath != dummy_path):    # If we JUST started our first dummy shot
                     if os.path.isfile(dummy_path):    # If there's already a dummy file already there, delete it
