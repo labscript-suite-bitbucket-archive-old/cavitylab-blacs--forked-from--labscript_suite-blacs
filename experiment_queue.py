@@ -98,7 +98,7 @@ class QueueManager(object):
 
     ICON_REPEAT = ':qtutils/fugue/arrow-repeat'
     ICON_REPEAT_LAST = ':qtutils/fugue/arrow-repeat-once'
-    ICON_REPEAT_LAST_DUMMY = ':qtutils/fugue/arrow-continue-180-top' # ':qtutils/fugue/clock-history'
+    ICON_REPEAT_LAST_DUMMY = ':qtutils/fugue/book-open-bookmark' # ':qtutils/fugue/arrow-continue-180-top' # ':qtutils/fugue/clock-history'
 
     def __init__(self, BLACS, ui):
         self._ui = ui
@@ -397,7 +397,7 @@ class QueueManager(object):
         if not self.is_in_queue(h5file):
             self._model.insertRow(0,QStandardItem(h5file))
 
-    def process_request(self,h5_filepath):
+    def process_request(self,h5_filepath,is_dummy=False):
         # check connection table
         try:
             new_conn = ConnectionTable(h5_filepath, logging_prefix='BLACS')
@@ -405,31 +405,54 @@ class QueueManager(object):
             return "H5 file not accessible to Control PC\n"
         result,error = inmain(self.BLACS.connection_table.compare_to,new_conn)
         if result:
-            # Has this run file been run already?
-            with h5py.File(h5_filepath) as h5_file:
-                if 'data' in h5_file['/']:
-                    rerun = True
-                else:
-                    rerun = False
-            if rerun or self.is_in_queue(h5_filepath):
-                self._logger.debug('Run file has already been run! Creating a fresh copy to rerun')
-                new_h5_filepath, repeat_number = self.new_rep_name(h5_filepath)
-                # Keep counting up until we get a filename that isn't in the filesystem:
-                while os.path.exists(new_h5_filepath):
-                    new_h5_filepath, repeat_number = self.new_rep_name(new_h5_filepath)
-                success = self.clean_h5_file(h5_filepath, new_h5_filepath, repeat_number=repeat_number)
-                if not success:
-                   return 'Cannot create a re run of this experiment. Is it a valid run file?'
-                self.append([new_h5_filepath])
-                message = "Experiment added successfully: experiment to be re-run\n"
+            if is_dummy:
+                dummy_path = 'X:\\dummy_shots\\DUMMY.h5'    # !!! Don't hard-code
+
+                if (h5_filepath != dummy_path):    # If we JUST started our first dummy shot
+                    if os.path.isfile(dummy_path):    # If there's already a dummy file already there, delete it
+                        os.remove(dummy_path)
+
+                    shutil.copyfile(h5_filepath, dummy_path)    # Copy over the old shot into the dummy location
+
+                with h5py.File(dummy_path,'r+') as hdf5_file:
+                    # Make a clean dummy h5 file
+                    groups_to_keep = ['devices', 'calibrations', 'script', 'globals', 'connection table',
+                                      'labscriptlib', 'waits']
+                    for key in hdf5_file.keys():
+                        if key not in groups_to_keep:
+                            del hdf5_file[key]
+
+                self.append([dummy_path])
+                message = "Experiment added successfully: dummy shot\n"
+                return message
+
             else:
-                self.append([h5_filepath])
-                message = "Experiment added successfully\n"
-            if self.manager_paused:
-                message += "Warning: Queue is currently paused\n"
-            if not self.manager_running:
-                message = "Error: Queue is not running\n"
-            return message
+#             if True:
+                # Has this run file been run already?
+                with h5py.File(h5_filepath) as h5_file:
+                    if 'data' in h5_file['/']:
+                        rerun = True
+                    else:
+                        rerun = False
+                if rerun or self.is_in_queue(h5_filepath):
+                    self._logger.debug('Run file has already been run! Creating a fresh copy to rerun')
+                    new_h5_filepath, repeat_number = self.new_rep_name(h5_filepath)
+                    # Keep counting up until we get a filename that isn't in the filesystem:
+                    while os.path.exists(new_h5_filepath):
+                        new_h5_filepath, repeat_number = self.new_rep_name(new_h5_filepath)
+                    success = self.clean_h5_file(h5_filepath, new_h5_filepath, repeat_number=repeat_number)
+                    if not success:
+                       return 'Cannot create a re run of this experiment. Is it a valid run file?'
+                    self.append([new_h5_filepath])
+                    message = "Experiment added successfully: experiment to be re-run\n"
+                else:
+                    self.append([h5_filepath])
+                    message = "Experiment added successfully\n"
+                if self.manager_paused:
+                    message += "Warning: Queue is currently paused\n"
+                if not self.manager_running:
+                    message = "Error: Queue is not running\n"
+                return message
         else:
             # TODO: Parse and display the contents of "error" in a more human readable format for analysis of what is wrong!
             message =  ("Connection table of your file is not a subset of the experimental control apparatus.\n"
@@ -949,19 +972,11 @@ class QueueManager(object):
 
             if repeat_shot:
                 if ((self.manager_repeat_mode == self.REPEAT_ALL) or
-                    (self.manager_repeat_mode == self.REPEAT_LAST and inmain(self._model.rowCount) == 0)):
+                    (((self.manager_repeat_mode == self.REPEAT_LAST) or (self.manager_repeat_mode == self.REPEAT_LAST_DUMMY)) and inmain(self._model.rowCount) == 0)):
                     # Resubmit job to the bottom of the queue:
                     try:
-                        message = self.process_request(path)
-                    except Exception:
-                        # TODO: make this error popup for the user
-                        self.logger.exception('Failed to copy h5_file (%s) for repeat run'%s)
-                    logger.info(message)
-
-                elif (self.manager_repeat_mode == self.REPEAT_LAST_DUMMY and inmain(self._model.rowCount) == 0):
-                    # Resubmit dummy job to the bottom of the queue:
-                    try:
-                        message = self.process_request(path)
+                        is_dummy = (self.manager_repeat_mode == self.REPEAT_LAST_DUMMY)
+                        message = self.process_request(path,is_dummy)
                     except Exception:
                         # TODO: make this error popup for the user
                         self.logger.exception('Failed to copy h5_file (%s) for repeat run'%s)
