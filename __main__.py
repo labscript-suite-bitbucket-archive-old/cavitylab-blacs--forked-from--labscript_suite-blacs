@@ -235,6 +235,9 @@ class BLACS(object):
         self.connection_table_h5file = self.exp_config.get('paths','connection_table_h5')
         self.connection_table_labscript = self.exp_config.get('paths','connection_table_py')
 
+        self.datadisplay_port = 22552
+        self.datadisplay_host = '171.64.56.66'
+
         # Setup the UI
         self.ui.main_splitter.setStretchFactor(0,0)
         self.ui.main_splitter.setStretchFactor(1,1)

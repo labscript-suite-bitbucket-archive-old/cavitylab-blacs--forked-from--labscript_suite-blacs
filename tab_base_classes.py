@@ -44,77 +44,77 @@ from labscript_utils.qtwidgets.elide_label import elide_label
 from blacs import BLACS_DIR
 
 class Counter(object):
-    """A class with a single method that 
+    """A class with a single method that
     returns a different integer each time it's called."""
     def __init__(self):
         self.i = 0
     def get(self):
         self.i += 1
         return self.i
-        
-        
+
+
 MODE_MANUAL = 1
 MODE_TRANSITION_TO_BUFFERED = 2
 MODE_TRANSITION_TO_MANUAL = 4
-MODE_BUFFERED = 8  
-            
+MODE_BUFFERED = 8
+
 class StateQueue(object):
     # NOTE:
     #
     # It is theoretically possible to remove the dependency on the Qt Mainloop (remove inmain decorators and fnuction calls)
-    # by introducing a local lock object instead. However, be aware that right now, the Qt inmain lock is preventing the 
-    # statemachine loop (Tab.mainloop) from getting any states uot of the queue until after the entire tab is initialised 
+    # by introducing a local lock object instead. However, be aware that right now, the Qt inmain lock is preventing the
+    # statemachine loop (Tab.mainloop) from getting any states uot of the queue until after the entire tab is initialised
     # and the Qt mainloop starts.
     #
     # This is particularly important because we exploit this behaviour to make sure that Tab._initialise_worker is placed at the
-    # start of the StateQueue, and so the Tab.mainloop method is guaranteed to get this initialisation method as the first state 
-    # regardless of whether the mainloop is started before the state is inserted (the state should always be inserted as part of  
+    # start of the StateQueue, and so the Tab.mainloop method is guaranteed to get this initialisation method as the first state
+    # regardless of whether the mainloop is started before the state is inserted (the state should always be inserted as part of
     # the call to Tab.create_worker, in DeviceTab.initialise_workers in DeviceTab.__init__ )
     #
-    
+
     def __init__(self,device_name):
         self.logger = logging.getLogger('BLACS.%s.state_queue'%(device_name))
         self.logging_enabled = False
         if self.logging_enabled:
             self.logger.debug("started")
-        
+
         self.list_of_states = []
         self._last_requested_state = None
         # A queue that blocks the get(requested_state) method until an entry in the queue has a state that matches the requested_state
         self.get_blocking_queue = queue.Queue()
 
     @property
-    @inmain_decorator(True)    
+    @inmain_decorator(True)
     # This is always done in main so that we avoid a race condition between the get method and
     # the put method accessing this property
     def last_requested_state(self):
         return self._last_requested_state
-    
+
     @last_requested_state.setter
     @inmain_decorator(True)
     def last_requested_state(self, value):
         self._last_requested_state = value
-     
+
     def log_current_states(self):
         if self.logging_enabled:
             self.logger.debug('Current items in the state queue: %s'%str(self.list_of_states))
-     
+
     # this should only happen in the main thread, as my implementation is not thread safe!
-    @inmain_decorator(True)   
+    @inmain_decorator(True)
     def put(self,allowed_states,queue_state_indefinitely,delete_stale_states,data,prepend=False):
         if prepend:
-            self.list_of_states.insert(0,[allowed_states,queue_state_indefinitely,delete_stale_states,data]) 
+            self.list_of_states.insert(0,[allowed_states,queue_state_indefinitely,delete_stale_states,data])
         else:
-            self.list_of_states.append([allowed_states,queue_state_indefinitely,delete_stale_states,data]) 
+            self.list_of_states.append([allowed_states,queue_state_indefinitely,delete_stale_states,data])
         # if this state is one the get command is waiting for, notify it!
         if self.last_requested_state is not None and allowed_states&self.last_requested_state:
             self.get_blocking_queue.put('new item')
-        
+
         if self.logging_enabled:
             if not isinstance(data[0],str):
                 self.logger.debug('New state queued up. Allowed modes: %d, queue state indefinitely: %s, delete stale states: %s, function: %s'%(allowed_states,str(queue_state_indefinitely),str(delete_stale_states),data[0].__name__))
         self.log_current_states()
-    
+
     # this should only happen in the main thread, as my implementation is not thread safe!
     @inmain_decorator(True)
     def check_for_next_item(self,state):
@@ -136,10 +136,10 @@ class StateQueue(object):
             if allowed_states&state:
                 # We have found one! Remove it from the list
                 delete_index_list.append(i)
-                
+
                 if self.logging_enabled:
                     self.logger.debug('requested state found in queue')
-                
+
                 # If we are to delete stale states, see if the next state is the same statefunction.
                 # If it is, use that one, or whichever is the latest entry without encountering a different statefunction,
                 # and delete the rest
@@ -152,24 +152,24 @@ class StateQueue(object):
                         allowed_states,queue_state_indefinitely,delete_stale_states,data = self.list_of_states[i]
                         delete_index_list.append(i)
                         i+=1
-                
+
                 success = True
                 break
             elif not queue_state_indefinitely:
                 if self.logging_enabled:
                     self.logger.debug('state should not be queued indefinitely')
                 delete_index_list.append(i)
-        
+
         # do this in reverse order so that the first delete operation doesn't mess up the indices of subsequent ones
         for index in reversed(sorted(delete_index_list)):
             if self.logging_enabled:
                 self.logger.debug('deleting state')
             del self.list_of_states[index]
-            
+
         if not success:
             data = None
-        return success,data    
-        
+        return success,data
+
     # this method should not be called in the main thread, because it will block until something is found...
     # Please, only have one thread ever accessing this...I have no idea how it will behave if multiple threads are trying to get
     # items from the queue...
@@ -178,7 +178,7 @@ class StateQueue(object):
     def get(self,state):
         if self.last_requested_state:
             raise Exception('You have multiple threads trying to get from this queue at the same time. I won\'t allow it!')
-    
+
         self.last_requested_state = state
         while True:
             if self.logging_enabled:
@@ -191,10 +191,10 @@ class StateQueue(object):
             else:
                 self.last_requested_state = None
                 return data
-                
-                    
-        
-# Make this function available globally:       
+
+
+
+# Make this function available globally:
 get_unique_id = Counter().get
 
 def define_state(allowed_modes,queue_state_indefinitely,delete_stale_states=False):
@@ -214,10 +214,10 @@ def define_state(allowed_modes,queue_state_indefinitely,delete_stale_states=Fals
             self.event_queue.put(allowed_modes,queue_state_indefinitely,delete_stale_states,[function,[args,kwargs]])
         f.__name__ = unescaped_name
         f._allowed_modes = allowed_modes
-        return f        
+        return f
     return wrap
-    
-        
+
+
 class Tab(object):
 
     ICON_OK = ':/qtutils/fugue/tick'
@@ -225,17 +225,17 @@ class Tab(object):
     ICON_ERROR = ':/qtutils/fugue/exclamation'
     ICON_FATAL_ERROR = ':/qtutils/fugue/exclamation-red'
 
-    def __init__(self,notebook,settings,restart=False):  
+    def __init__(self,notebook,settings,restart=False):
         # Store important parameters
         self.notebook = notebook
         self.settings = settings
         self._device_name = self.settings["device_name"]
-        
+
         # Setup logging
-        self.logger = logging.getLogger('BLACS.%s'%(self.device_name))   
-        self.logger.debug('Started')          
-        
-        # Setup the timer for updating that tab text label when the tab is not 
+        self.logger = logging.getLogger('BLACS.%s'%(self.device_name))
+        self.logger.debug('Started')
+
+        # Setup the timer for updating that tab text label when the tab is not
         # actively part of a notebook
         self._tab_icon_and_colour_timer = QTimer()
         self._tab_icon_and_colour_timer.timeout.connect(self.set_tab_icon_and_colour)
@@ -256,14 +256,14 @@ class Tab(object):
         self.workers = {}
         self._supports_smart_programming = False
         self._restart_receiver = []
-        
+
         # Load the UI
         self._ui = UiLoader().load(os.path.join(BLACS_DIR, 'tab_frame.ui'))
         self._layout = self._ui.device_layout
         self._device_widget = self._ui.device_controls
         self._changed_widget = self._ui.changed_widget
         self._changed_layout = self._ui.changed_layout
-        self._changed_widget.hide()        
+        self._changed_widget.hide()
         self.BLACS_connection = self.settings['connection_table'].find_by_name(self.device_name).BLACS_connection
         self._ui.device_name.setText("<b>%s</b> [conn: %s]"%(str(self.device_name),str(self.BLACS_connection)))
         elide_label(self._ui.device_name, self._ui.horizontalLayout, Qt.ElideRight)
@@ -280,33 +280,33 @@ class Tab(object):
         self.force_full_buffered_reprogram = True
         self._ui.button_show_terminal.toggled.connect(self.set_terminal_visible)
         self._ui.button_close.clicked.connect(self.hide_error)
-        self._ui.button_restart.clicked.connect(self.restart)        
+        self._ui.button_restart.clicked.connect(self.restart)
         self._update_error_and_tab_icon()
         self.supports_smart_programming(False)
-        
+
         # Restore settings:
         self.restore_builtin_save_data(self.settings.get('saved_data', {}))
 
-        # This should be done beofre the main_loop starts or else there is a race condition as to whether the 
+        # This should be done beofre the main_loop starts or else there is a race condition as to whether the
         # self._mode variable is even defined!
         # However it must be done after the UI is created!
         self.mode = MODE_MANUAL
         self.state = 'idle'
-        
+
         # Setup the not responding timeout
         self._timeout = QTimer()
         self._timeout.timeout.connect(self.check_time)
         self._timeout.start(1000)
-                
+
         # Launch the mainloop
         self._mainloop_thread = threading.Thread(target = self.mainloop)
         self._mainloop_thread.daemon = True
         self._mainloop_thread.start()
-                
+
         # Add the tab to the notebook
         self.notebook.addTab(self._ui,self.device_name)
         self._ui.show()
-    
+
     def get_builtin_save_data(self):
         """Get builtin settings to be restored like whether the terminal is
         visible. Not to be overridden."""
@@ -339,24 +339,24 @@ class Tab(object):
             self._ui.button_clear_smart_programming.show()
         else:
             self._ui.button_clear_smart_programming.hide()
-    
+
     def on_force_full_buffered_reprogram(self):
         self.force_full_buffered_reprogram = True
 
     @property
     def force_full_buffered_reprogram(self):
         return self._force_full_buffered_reprogram
-        
+
     @force_full_buffered_reprogram.setter
     def force_full_buffered_reprogram(self,value):
         self._force_full_buffered_reprogram = bool(value)
         self._ui.button_clear_smart_programming.setEnabled(not bool(value))
-    
+
     @property
     @inmain_decorator(True)
     def error_message(self):
         return self._error
-    
+
     @error_message.setter
     @inmain_decorator(True)
     def error_message(self,message):
@@ -365,7 +365,7 @@ class Tab(object):
         if message != self._error:
             self._error = message
             self._update_error_and_tab_icon()
-    
+
     @inmain_decorator(True)
     def _update_error_and_tab_icon(self):
         """Udate and show the error message for the tab, and update the icon
@@ -380,7 +380,7 @@ class Tab(object):
             if self.error_message:
                 if self.state == 'fatal error':
                     self._tab_icon = self.ICON_FATAL_ERROR
-                else: 
+                else:
                     self._tab_icon = self.ICON_ERROR
         else:
             self._ui.notresponding.hide()
@@ -390,7 +390,7 @@ class Tab(object):
             else:
                 self._tab_icon = self.ICON_BUSY
         self.set_tab_icon_and_colour()
-    
+
     @inmain_decorator(True)
     def set_tab_icon_and_colour(self):
         """Set the tab icon and the colour of its text to the values of
@@ -409,35 +409,35 @@ class Tab(object):
             self._tab_icon_and_colour_timer.stop()
         elif not self._tab_icon_and_colour_timer.isActive():
             self._tab_icon_and_colour_timer.start(100)
-    
+
     def get_tab_layout(self):
         return self._layout
-    
+
     @property
     def device_name(self):
         return self._device_name
-    
+
     # sets the mode, switches between MANUAL, BUFFERED, TRANSITION_TO_BUFFERED and TRANSITION_TO_STATIC
     @property
     def mode(self):
         return self._mode
-    
+
     @mode.setter
     def mode(self,mode):
         self._mode = mode
         self._update_state_label()
-        
+
     @property
     def state(self):
         return self._state
-        
+
     @state.setter
     def state(self,state):
-        self._state = state        
+        self._state = state
         self._time_of_last_state_change = time.time()
         self._update_state_label()
         self._update_error_and_tab_icon()
-    
+
     @inmain_decorator(True)
     def _update_state_label(self):
         if self.mode == 1:
@@ -450,34 +450,34 @@ class Tab(object):
             mode = 'Buffered'
         else:
             raise RuntimeError('self.mode for device %s is invalid. It must be one of MODE_MANUAL, MODE_TRANSITION_TO_BUFFERED, MODE_TRANSITION_TO_MANUAL or MODE_BUFFERED'%(self.device_name))
-    
+
         self._ui.state_label.setText('<b>%s mode</b> - State: %s'%(mode,self.state))
-        
+
         # Todo: Update icon in tab
-    
+
     def create_worker(self,name,WorkerClass,workerargs={}):
         if name in self.workers:
-            raise Exception('There is already a worker process with name: %s'%name) 
+            raise Exception('There is already a worker process with name: %s'%name)
         if name == 'GUI':
             # This is here so that we can display "(GUI)" in the status bar and have the user confident this is actually happening in the GUI,
             # not in a worker process named GUI
             raise Exception('You cannot call a worker process "GUI". Why would you want to? Your worker process cannot interact with the BLACS GUI directly, so you are just trying to confuse yourself!')
-        
+
         worker = WorkerClass(output_redirection_port=self._output_box.port)
         to_worker, from_worker = worker.start(name, self.device_name, workerargs)
         self.workers[name] = (worker,to_worker,from_worker)
         self.event_queue.put(MODE_MANUAL|MODE_BUFFERED|MODE_TRANSITION_TO_BUFFERED|MODE_TRANSITION_TO_MANUAL,True,False,[Tab._initialise_worker,[(name,),{}]],prepend=True)
-       
+
     def _initialise_worker(self, worker_name):
         yield(self.queue_work(worker_name,'init'))
-                
+
         if self.error_message:
             raise Exception('Device failed to initialise')
-               
-    @define_state(MODE_MANUAL|MODE_BUFFERED|MODE_TRANSITION_TO_BUFFERED|MODE_TRANSITION_TO_MANUAL,True)  
+
+    @define_state(MODE_MANUAL|MODE_BUFFERED|MODE_TRANSITION_TO_BUFFERED|MODE_TRANSITION_TO_MANUAL,True)
     def _timeout_add(self,delay,execute_timeout):
         QTimer.singleShot(delay,execute_timeout)
-    
+
     def statemachine_timeout_add(self,delay,statefunction,*args,**kwargs):
         # Add the timeout to our set of registered timeouts. Timeouts
         # can thus be removed by the user at ay time by calling
@@ -495,23 +495,23 @@ class Tab(object):
                 # queue up another call to this function (execute_timeout)
                 # after the delay time:
                 self._timeout_add(delay,execute_timeout)
-            
-        # Store a unique ID for this timeout so that we don't confuse 
+
+        # Store a unique ID for this timeout so that we don't confuse
         # other timeouts for this one when checking to see that this
         # timeout hasn't been removed:
         unique_id = get_unique_id()
         self._timeout_ids[statefunction] = unique_id
         # queue the first run:
-        #QTimer.singleShot(delay,execute_timeout)    
+        #QTimer.singleShot(delay,execute_timeout)
         execute_timeout()
-        
+
     # Returns True if the timeout was removed
     def statemachine_timeout_remove(self,statefunction):
         if statefunction in self._timeouts:
             self._timeouts.remove(statefunction)
             return True
         return False
-    
+
     # returns True if at least one timeout was removed, else returns False
     def statemachine_timeout_remove_all(self):
         # As a consistency check, we overwrite self._timeouts to an empty set always
@@ -521,8 +521,8 @@ class Tab(object):
             return True
         else:
             self._timeouts = set()
-            return False        
-    
+            return False
+
     # def set_state(self,state):
         # ready = self.tab_label_widgets['ready']
         # working = self.tab_label_widgets['working']
@@ -545,12 +545,12 @@ class Tab(object):
             # working.show()
         # self._time_of_last_state_change = time.time()
         # self.statusbar.push(self.context_id, state)
-    
+
     def close_tab(self,*args):
         self.logger.info('close_tab called')
         self._timeout.stop()
         self._tab_icon_and_colour_timer.stop()
-        for name,worker_data in self.workers.items():            
+        for name,worker_data in self.workers.items():
             worker_data[0].terminate()
             # The mainloop is blocking waiting for something out of the
             # from_worker queue or the event_queue. Closing the queues doesn't
@@ -571,17 +571,17 @@ class Tab(object):
             self.notebook.removeTab(currentpage)
             temp_widget = QWidget()
             self.notebook.insertTab(currentpage, temp_widget, self.device_name)
-            self.notebook.setCurrentWidget(temp_widget)  
+            self.notebook.setCurrentWidget(temp_widget)
         return currentpage
-    
+
     def connect_restart_receiver(self,function):
         if function not in self._restart_receiver:
             self._restart_receiver.append(function)
-            
+
     def disconnect_restart_receiver(self,function):
         if function in self._restart_receiver:
             self._restart_receiver.remove(function)
-    
+
     def restart(self,*args):
         # notify all connected receivers:
         for f in self._restart_receiver:
@@ -589,17 +589,17 @@ class Tab(object):
                 f(self.device_name)
             except:
                 self.logger.exception('Could not notify a connected receiver function')
-                
+
         currentpage = self.close_tab()
         self.logger.info('***RESTART***')
         self.settings['saved_data'] = self.get_all_save_data()
         self._restart_thread = inthread(self.wait_for_mainloop_to_stop, currentpage)
-        
+
     def wait_for_mainloop_to_stop(self, currentpage):
         self._mainloop_thread.join()
         inmain(self.clean_ui_on_restart)
         inmain(self.finalise_restart, currentpage)
-        
+
     def clean_ui_on_restart(self):
         # Clean up UI
         ui = self._ui
@@ -607,31 +607,31 @@ class Tab(object):
         ui.setParent(None)
         ui.deleteLater()
         del ui
-        
+
     def finalise_restart(self, currentpage):
         widget = self.notebook.widget(currentpage)
         widget.setParent(None)
         widget.deleteLater()
         del widget
-    
+
         # Note: the following function call will break if the user hasn't
         # overridden the __init__ function to take these arguments. So
         # make sure you do that!
         self.__init__(self.notebook, self.settings,restart=True)
-        
+
         # The init method is going to place this device tab at the end of the notebook specified
         # Let's remove it from there, and place it the poition it used to be!
         self.notebook = self._ui.parentWidget().parentWidget()
         self.notebook.removeTab(self.notebook.indexOf(self._ui))
         self.notebook.insertTab(currentpage,self._ui,self.device_name)
         self.notebook.setCurrentWidget(self._ui)
-            
+
         # If BLACS is waiting on this tab for something, tell it to abort!
         # self.BLACS.current_queue.put('abort')
-    
+
     def queue_work(self,worker_process,worker_function,*args,**kwargs):
         return worker_process,worker_function,args,kwargs
-        
+
     def set_terminal_visible(self, visible):
         if visible:
             self._output_box.output_textedit.show()
@@ -642,14 +642,14 @@ class Tab(object):
     def hide_error(self):
         # dont show the error again until the not responding time has doubled:
         self.hide_not_responding_error_until = 2*self.not_responding_for
-        self._ui.notresponding.hide()  
+        self._ui.notresponding.hide()
         self.error_message = ''
         self._tab_text_colour = 'black'
         self.set_tab_icon_and_colour()
         #self.tab_label_widgets['error'].hide()
         #if self.state == 'idle':
         #    self.tab_label_widgets['ready'].show()
-            
+
     def check_time(self):
         if self.state in ['idle','fatal error']:
             self.not_responding_for = 0
@@ -672,15 +672,15 @@ class Tab(object):
             self._not_responding_error_message = 'The hardware process has not responded for %s.<br /><br />'%s
             self._update_error_and_tab_icon()
         return True
-        
+
     def mainloop(self):
-        logger = logging.getLogger('BLACS.%s.mainloop'%(self.settings['device_name']))   
+        logger = logging.getLogger('BLACS.%s.mainloop'%(self.settings['device_name']))
         logger.debug('Starting')
-        
+
         # Store a reference to the state queue and workers, this way if the tab is restarted, we won't ever get access to the new state queue created then
         event_queue = self.event_queue
         workers = self.workers
-        
+
         try:
             while True:
                 # Get the next task from the event queue:
@@ -753,14 +753,14 @@ class Tab(object):
                                                '<FONT COLOR=\'#ff0000\'>%s</FONT><br />'%cgi.escape(message).replace(' ','&nbsp;').replace('\n','<br />'))
                             else:
                                 logger.debug('Job completed')
-                            
-                            # Reset the hide_not_responding_error_until, since we have now heard from the child                        
+
+                            # Reset the hide_not_responding_error_until, since we have now heard from the child
                             self.hide_not_responding_error_until = 0
-                                
+
                             # Send the results back to the GUI function
                             logger.debug('returning worker results to function %s' % func.__name__)
                             self.state = '%s (GUI)'%func.__name__
-                            next_yield = inmain(generator.send,results) 
+                            next_yield = inmain(generator.send,results)
                             # If there is another yield command, put the data in the required variables for the next loop iteration
                             if next_yield:
                                 worker_process,worker_function,worker_args,worker_kwargs = next_yield
@@ -782,18 +782,18 @@ class Tab(object):
                 now = now.decode('utf-8')
             self.error_message += ('Fatal exception in main process - %s:<br /> '%now +
                            '<FONT COLOR=\'#ff0000\'>%s</FONT><br />'%cgi.escape(message).replace(' ','&nbsp;').replace('\n','<br />'))
-                            
+
             self.state = 'fatal error'
             # do this in the main thread
             inmain(self._ui.button_close.setEnabled,False)
         logger.info('Exiting')
-        
-        
+
+
 class Worker(Process):
     def init(self):
         # To be overridden by subclasses
         pass
-    
+
     def run(self, worker_name, device_name, extraargs):
         self.worker_name = worker_name
         self.device_name = device_name
@@ -840,6 +840,7 @@ class Worker(Process):
                     success = False
                     traceback_lines = traceback.format_exception(*sys.exc_info())
                     del traceback_lines[1]
+                    print(traceback_lines)
                     message = ''.join(traceback_lines)
                     self.logger.error('Exception in job:\n%s'%message)
                 # Check if results object is serialisable:
@@ -933,7 +934,7 @@ class PluginTab(object):
     # method when the tab is initialised
     def get_save_data(self):
         return {}
-        
+
     def get_all_save_data(self):
         save_data = self.get_builtin_save_data()
         if hasattr(self, 'get_save_data'):
@@ -970,9 +971,9 @@ class PluginTab(object):
 class MyTab(Tab):
     def __init__(self,notebook,settings,restart=False): # restart will be true if __init__ was called due to a restart
         Tab.__init__(self,notebook,settings,restart) # Make sure to call this first in your __init__!
-        
+
         self.create_worker('My worker',MyWorker,{'x':7})
-        
+
         # foobutton = gtk.Button('foo, 10 seconds!')
         # barbutton = gtk.Button('bar, 10 seconds, then error!')
         # bazbutton = gtk.Button('baz, 0.5 seconds!')
@@ -991,9 +992,9 @@ class MyTab(Tab):
         # hbox.pack_start(removebazbutton)
         # hbox.pack_start(bazunpickleable)
         # hbox.pack_start(self.checkbutton)
-        
+
         # self.toplevel.pack_start(fatalbutton)
-        
+
         # foobutton.connect('clicked', self.foo)
         # barbutton.connect('clicked', self.bar)
         # bazbutton.connect('clicked', self.baz)
@@ -1003,14 +1004,14 @@ class MyTab(Tab):
         # bazunpickleable.connect('clicked', self.baz_unpickleable)
         # # These two lines are required to top level widget (buttonbox
         # # in this case) to the existing GUI:
-        # self.viewport.add(self.toplevel) 
-        # self.toplevel.show_all()    
+        # self.viewport.add(self.toplevel)
+        # self.toplevel.show_all()
 
         self.initUI()
-        
+
     def initUI(self):
         self.layout = self.get_tab_layout()
-        
+
         foobutton = QPushButton('foo, 10 seconds!')
         barbutton = QPushButton('bar, 10 seconds, then error!')
         bazbutton = QPushButton('baz, 0.5 seconds!')
@@ -1018,10 +1019,10 @@ class MyTab(Tab):
         removebazbutton = QPushButton('remove baz timeout')
         bazunpickleable= QPushButton('try to pass baz a threading.Lock()')
         fatalbutton = QPushButton('fatal error, forgot to add @define_state to callback!')
-        
+
         self.checkbutton = QPushButton('have baz\nreturn a Queue')
         self.checkbutton.setCheckable(True)
-        
+
         #self.device_widget.addWidget(layout)
         self.layout.addWidget(foobutton)
         self.layout.addWidget(barbutton)
@@ -1031,7 +1032,7 @@ class MyTab(Tab):
         self.layout.addWidget(bazunpickleable)
         self.layout.addWidget(fatalbutton)
         self.layout.addWidget(self.checkbutton)
-        
+
         foobutton.clicked.connect(self.foo)
         barbutton.clicked.connect(self.bar)
         bazbutton.clicked.connect(self.baz)
@@ -1040,7 +1041,7 @@ class MyTab(Tab):
         removebazbutton.clicked.connect(self.remove_baz_timeout)
         bazunpickleable.clicked.connect(self.baz_unpickleable)
 
-        
+
     # It is critical that you decorate your callbacks with @define_state
     # as below. This makes the function get queued up and executed
     # in turn by our state machine instead of immediately by the
@@ -1049,7 +1050,7 @@ class MyTab(Tab):
     # in (for example, adjusting the axis range of a plot, or other
     # appearance settings). You should never be calling queue_work
     # or do_after from un undecorated callback.
-    @define_state(MODE_MANUAL,True)  
+    @define_state(MODE_MANUAL,True)
     def foo(self):
         self.logger.debug('entered foo')
         #self.toplevel.set_sensitive(False)
@@ -1064,7 +1065,7 @@ class MyTab(Tab):
 
         #self.toplevel.set_sensitive(True)
         self.logger.debug('leaving foo')
-    
+
     # Here's what's NOT to do: forgetting to decorate a callback with @define_state
     # when it's not something that can safely be done asynchronously
     # to the state machine:
@@ -1074,15 +1075,15 @@ class MyTab(Tab):
         # correcly decorated callback will it become apparant that
         # something is wrong. So don't make this mistake!
         self.queue_work('My worker','foo', 5,6,7,x='x')
-        
-    @define_state(MODE_MANUAL,True)  
+
+    @define_state(MODE_MANUAL,True)
     def bar(self):
         self.logger.debug('entered bar')
         results = yield(self.queue_work('My worker','bar', 5,6,7,x=5))
-      
+
         self.logger.debug('leaving bar')
-        
-    @define_state(MODE_MANUAL,True)  
+
+    @define_state(MODE_MANUAL,True)
     def baz(self, button=None):
         print(threading.current_thread().name)
         self.logger.debug('entered baz')
@@ -1093,15 +1094,15 @@ class MyTab(Tab):
         print(results)
         print(threading.current_thread().name)
         self.logger.debug('leaving baz')
-        
+
     # This event shows what happens if you try to send a unpickleable
     # event through a queue to the subprocess:
-    @define_state(MODE_MANUAL,True)  
+    @define_state(MODE_MANUAL,True)
     def baz_unpickleable(self):
         self.logger.debug('entered baz_unpickleable')
         results = yield(self.queue_work('My worker','baz', 5,6,7,x=threading.Lock()))
         self.logger.debug('leaving baz_unpickleable')
-    
+
     # You don't need to decorate with @define_state if all you're
     # doing is adding a timeout -- adding a timeout can safely be done
     # asynchronously. But you can still decorate if you want, and you
@@ -1109,12 +1110,12 @@ class MyTab(Tab):
     # can't be done asynchronously.
     def add_baz_timeout(self):
         self.statemachine_timeout_add(2000,self.baz)
-    
-    # Similarly, no @define_state is required here -- same applies as above.    
+
+    # Similarly, no @define_state is required here -- same applies as above.
     def remove_baz_timeout(self):
         self.statemachine_timeout_remove(self.baz)
-    
-        
+
+
 class MyWorker(Worker):
     def init(self):
         # You read correctly, this isn't __init__, it's init. It's the
@@ -1131,7 +1132,7 @@ class MyWorker(Worker):
         global serial; import serial
         self.logger.info('got x! %d' % self.x)
         raise Exception('bad import!')
-        
+
     # Here's a function that will be called when requested by the parent
     # process. There's nothing special about it really. Its return
     # value will be passed as a keyword argument _results to the
@@ -1140,13 +1141,13 @@ class MyWorker(Worker):
         self.logger.debug('working on foo!')
         time.sleep(10)
         return 'results!!!'
-        
+
     def bar(self,*args,**kwargs):
         self.logger.debug('working on bar!')
         time.sleep(10)
         raise Exception('error!')
         return 'results!!!'
-        
+
     def baz(self,zzz,*args,**kwargs):
         self.logger.debug('working on baz: time is %s'%repr(time.time()))
         time.sleep(0.5)
@@ -1182,22 +1183,22 @@ if __name__ == '__main__':
     layout = QVBoxLayout(window)
     notebook = DragDropTabWidget()
     layout.addWidget(notebook)
-    
+
     class FakeConnection(object):
         def __init__(self):
             self.BLACS_connection = 'None'
     class FakeConnectionTable(object):
         def __init__(self):
             pass
-        
+
         def find_by_name(self, device_name):
             return FakeConnection()
-    
+
     connection_table = FakeConnectionTable()
-    
+
     tab1 = MyTab(notebook,settings = {'device_name': 'Example', 'connection_table':connection_table})
     tab2 = MyTab(notebook,settings = {'device_name': 'Example2', 'connection_table':connection_table})
-    
+
     window.show()
     #notebook.show()
     def run():
@@ -1207,13 +1208,13 @@ if __name__ == '__main__':
     sys.exit(run())
 
     # Run the demo!:
-    # gtk.gdk.threads_init() 
-    # window = gtk.Window() 
+    # gtk.gdk.threads_init()
+    # window = gtk.Window()
     # notebook = gtk.Notebook()
-    # window.connect('destroy',lambda widget: gtk.main_quit())  
+    # window.connect('destroy',lambda widget: gtk.main_quit())
     # window.add(notebook)
     # notebook.show()
-    # window.show()  
+    # window.show()
     # window.resize(800,600)
     # with gtk.gdk.lock:
         # gtk.main()

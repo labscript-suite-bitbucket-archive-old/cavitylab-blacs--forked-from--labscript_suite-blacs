@@ -542,6 +542,11 @@ class QueueManager(object):
         # While the program is running!
         logger.info('starting')
 
+        # Check that Data Display Server is connected
+        response = zprocess.zmq_get_raw(self.BLACS.datadisplay_port, self.BLACS.datadisplay_host, data='hello'.encode('utf-8'))
+        if response.decode('utf-8') != 'hello':
+            logger.exception('invalid response from server: ' + str(response))
+
         # HDF5 prints lots of errors by default, for things that aren't
         # actually errors. These are silenced on a per thread basis,
         # and automatically silenced in the main thread when h5py is
@@ -605,6 +610,19 @@ class QueueManager(object):
                 # A Queue for event-based notification when the tabs have
                 # completed transitioning to buffered:
 
+                print('------------------------ Transition to Buffered --------------------------')
+                start_time = time.time()
+
+                # Send h5 file over to Data Display Server
+                response = zprocess.zmq_get_raw(self.BLACS.datadisplay_port, self.BLACS.datadisplay_host, data=path.encode('utf-8'))
+                if response.decode('utf-8') != 'ok':
+                    logger.exception('invalid response from server: ' + str(response))
+                    error_condition = True
+                response = zprocess.zmq_get_raw(self.BLACS.datadisplay_port, self.BLACS.datadisplay_host, timeout = 10)
+                if response.decode('utf-8') != 'done':
+                    logger.exception('invalid response from server: ' + str(response))
+                    error_condition = True
+
                 timed_out = False
                 error_condition = False
                 abort = False
@@ -664,6 +682,7 @@ class QueueManager(object):
                             error_condition = True
                             break
 
+                        print(str(device_name) + ':\t\t' + str(time.time() - start_time))
                         del transition_list[device_name]
                     except queue.Empty:
                         # It's been 2 seconds without a device finishing
@@ -719,6 +738,7 @@ class QueueManager(object):
                     # Start a new iteration
                     continue
 
+                print('------------------------ Done --------------------------')
 
 
                 ##########################################################################################################################################
@@ -728,6 +748,8 @@ class QueueManager(object):
                 # Get front panel data, but don't save it to the h5 file until the experiment ends:
                 states,tab_positions,window_data,plugin_data = self.BLACS.front_panel_settings.get_save_data()
                 self.set_status("Running (program time: %.3fs)..."%(time.time() - start_time), path)
+                print('------------------------ Running --------------------------')
+                run_start_time = time.time()
 
                 # A Queue for event-based notification of when the experiment has finished.
                 experiment_finished_queue = queue.Queue()
@@ -783,6 +805,8 @@ class QueueManager(object):
                     continue
 
                 logger.info('Run complete')
+                print('Runtime: \t\t' + str(time.time() - run_start_time))
+                print('------------------------ Done --------------------------')
                 self.set_status("Saving data...", path)
             # End try/except block here
             except Exception:
@@ -839,6 +863,9 @@ class QueueManager(object):
             ##########################################################################################################################################
             # start new try/except block here
             try:
+                print('------------------------ Transition to Static --------------------------')
+                static_start_time = time.time()
+
                 with h5py.File(path,'r+') as hdf5_file:
                     self.BLACS.front_panel_settings.store_front_panel_in_h5(hdf5_file,states,tab_positions,window_data,plugin_data,save_conn_table=False, save_queue_data=False)
 
@@ -868,6 +895,7 @@ class QueueManager(object):
                             if device_name != got_device_name:
                                 response_list[got_device_name] = result
                             else:
+                                print(str(device_name) + ':\t\t' + str(time.time() - static_start_time))
                                 break
                     else:
                         result = response_list[device_name]
@@ -883,6 +911,18 @@ class QueueManager(object):
 
                 if error_condition:
                     self.set_status("Error in transtion to manual\nQueue Paused")
+
+                # Send 'done' command to Data Display Server
+                response = zprocess.zmq_get_raw(self.BLACS.datadisplay_port, self.BLACS.datadisplay_host, 'done'.encode('utf-8'))
+                if response.decode('utf-8') != 'ok':
+                    logger.exception('invalid response from server: ' + str(response))
+                    error_condition = True
+                response = zprocess.zmq_get_raw(self.BLACS.datadisplay_port, self.BLACS.datadisplay_host, timeout = 10)
+                if response.decode('utf-8') != 'done':
+                    logger.exception('invalid response from server: ' + str(response))
+                    error_condition = True
+
+                print('------------------------ Done --------------------------')
 
             except Exception as e:
                 error_condition = True
@@ -984,4 +1024,3 @@ class QueueManager(object):
 
             self.set_status("Idle")
         logger.info('Stopping')
-
