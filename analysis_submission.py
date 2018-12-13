@@ -36,12 +36,12 @@ from labscript_utils.qtwidgets.elide_label import elide_label
 from blacs import BLACS_DIR
 
 
-class AnalysisSubmission(object):        
+class AnalysisSubmission(object):
     def __init__(self, BLACS, blacs_ui):
         self.inqueue = queue.Queue()
         self.BLACS = BLACS
         self.port = int(self.BLACS.exp_config.get('ports', 'lyse'))
-        
+
         self._ui = UiLoader().load(os.path.join(BLACS_DIR, 'analysis_submission.ui'))
         blacs_ui.analysis.addWidget(self._ui)
         self._ui.frame.setMinimumWidth(blacs_ui.queue_controls_frame.sizeHint().width())
@@ -61,11 +61,11 @@ class AnalysisSubmission(object):
         self.mainloop_thread = threading.Thread(target=self.mainloop)
         self.mainloop_thread.daemon = True
         self.mainloop_thread.start()
-        
+
         # self.checking_thread = threading.Thread(target=self.check_connectivity_loop)
         # self.checking_thread.daemon = True
         # self.checking_thread.start()
-    
+
     def restore_save_data(self,data):
         if "server" in data:
             self.server = data["server"]
@@ -75,25 +75,25 @@ class AnalysisSubmission(object):
             self._waiting_for_submission = list(data["waiting_for_submission"])
         self.inqueue.put(['save data restored', None])
         self.check_retry()
-            
+
     def get_save_data(self):
         return {"waiting_for_submission":list(self._waiting_for_submission),
                 "server":self.server,
                 "send_to_server":self.send_to_server
                }
-    
+
     def _set_send_to_server(self,value):
         self.send_to_server = value
-        
+
     def _set_server(self,server):
         self.server = server
         self.check_retry()
-    
+
     @property
     @inmain_decorator(True)
     def send_to_server(self):
         return self._send_to_server
-        
+
     @send_to_server.setter
     @inmain_decorator(True)
     def send_to_server(self, value):
@@ -107,13 +107,13 @@ class AnalysisSubmission(object):
             self.clear_waiting_files()
             self._ui.server.setEnabled(False)
             self._ui.server_online.hide()
-    
+
     @property
     @inmain_decorator(True)
     def server(self):
         return str(self._server)
-        
-    @server.setter    
+
+    @server.setter
     @inmain_decorator(True)
     def server(self,value):
         self._server = value
@@ -123,15 +123,15 @@ class AnalysisSubmission(object):
     @inmain_decorator(True)
     def server_online(self):
         return self._server_online
-        
+
     @server_online.setter
     @inmain_decorator(True)
     def server_online(self,value):
         self._server_online = str(value)
-        
+
         icon_names = {'checking': ':/qtutils/fugue/hourglass',
                       'online': ':/qtutils/fugue/tick',
-                      'offline': ':/qtutils/fugue/exclamation', 
+                      'offline': ':/qtutils/fugue/exclamation',
                       '': ':/qtutils/fugue/status-offline'}
 
         tooltips = {'checking': 'Checking...',
@@ -229,19 +229,20 @@ class AnalysisSubmission(object):
                 # Raise in a thread for visibility, but keep going
                 raise_exception_in_thread(sys.exc_info())
                 self._mainloop_logger.exception("Exception in mainloop, continuing")
-            
+
     def check_connectivity(self):
         host = self.server
         send_to_server = self.send_to_server
-        if host and send_to_server:       
-            self.server_online = 'checking'         
+        if host and send_to_server:
+            self.server_online = 'checking'
             try:
                 response = zmq_get(self.port, host, 'hello', timeout=1)
             except (TimeoutError, gaierror):
                 success = False
+                self._mainloop_logger.info('TimeoutError')
             else:
                 success = (response == 'hello')
-                
+                self._mainloop_logger.info('Check connectivity -- success')
             # update GUI
             self.server_online = 'online' if success else 'offline'
         else:
@@ -263,7 +264,7 @@ class AnalysisSubmission(object):
             else:
                 success = (response == 'added successfully')
                 try:
-                    self._waiting_for_submission.pop(0) 
+                    self._waiting_for_submission.pop(0)
                 except IndexError:
                     # Queue has been cleared
                     pass
@@ -272,4 +273,3 @@ class AnalysisSubmission(object):
         # update GUI
         self.server_online = 'online' if success else 'offline'
         self.time_of_last_connectivity_check = time.time()
-        
